@@ -13,39 +13,54 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto) {
-    const foundUser = await this.userService.findOneByEmail(registerDto.email);
+    try {
+      await this.userService.create({
+        ...registerDto,
+        password: await bcrypt.hash(registerDto.password, 10),
+      });
 
-    if (foundUser) {
-      throw new BadRequestException('Email is already taken');
+      return {
+        name: registerDto.name,
+        email: registerDto.email,
+      };
+    } catch (error) {
+      if (error?.errno === 1062) {
+        throw new BadRequestException('Email already exists');
+      }
+
+      throw new BadRequestException();
     }
-
-    return await this.userService.create({
-      ...registerDto,
-      password: await bcrypt.hash(registerDto.password, 10),
-    });
   }
 
   async login(loginDto: LoginDto) {
-    const foundUser = await this.userService.findOneByEmail(loginDto.email);
+    try {
+      const foundUser = await this.userService.findOneByEmail(loginDto.email);
 
-    if (!foundUser) {
-      throw new UnauthorizedException('Invalid credentials');
+      if (!foundUser) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const isValidPassword = await bcrypt.compare(loginDto.password, foundUser.password);
+
+      if (!isValidPassword) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const payload = {
+        email: foundUser.email,
+        role: foundUser.role,
+      };
+
+      return {
+        access_token: await this.jwtService.signAsync(payload),
+        email: foundUser.email,
+      };
+    } catch (error) {
+      throw new UnauthorizedException(error.message);
     }
+  }
 
-    const isValidPassword = await bcrypt.compare(loginDto.password, foundUser.password);
-
-    if (!isValidPassword) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const payload = {
-      sub: foundUser.name,
-      email: foundUser.email,
-    };
-
-    return {
-      access_token: await this.jwtService.signAsync(payload),
-      email: foundUser.email,
-    };
+  async profile({ email, role }: { email: string; role: string }) {
+    return await this.userService.findOneByEmail(email);
   }
 }
